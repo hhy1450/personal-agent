@@ -1,8 +1,7 @@
-"""Streamlit Web UI for Personal Agent."""
+"""Personal Agent Streamlit Web 界面."""
 import sys
 from pathlib import Path
 
-# Ensure src is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
@@ -15,149 +14,130 @@ from src.storage.models import TaskStatus
 from src.llm.deepseek import DeepSeekProvider
 from src.engine.graph import run_workflow
 
-# Page config
-st.set_page_config(
-    page_title="Personal Agent",
-    page_icon="🤖",
-    layout="wide",
-)
+st.set_page_config(page_title="个人 Agent", page_icon="🤖", layout="wide")
 
-# Init DB
 init_db()
 seed_agent_configs()
 
-# --- Sidebar ---
-st.sidebar.title("🤖 Personal Agent")
+# ===== 侧边栏 =====
+st.sidebar.title("🤖 个人 Agent")
 st.sidebar.caption("多 Agent 工作流自动化")
 
-# Task history
 st.sidebar.divider()
-st.sidebar.subheader("📋 任务历史")
+st.sidebar.subheader("📋 历史任务")
 
 tasks = list_tasks(limit=50)
+task_options = {t.id: f"#{t.id} {t.title[:25]}" for t in tasks}
 
-if not tasks:
-    st.sidebar.caption("暂无任务记录")
+selected_id = None
+if task_options:
+    selected_id = st.sidebar.selectbox(
+        "选择一个任务查看详情",
+        options=[""] + list(task_options.keys()),
+        format_func=lambda x: task_options.get(x, "—") if x else "—",
+        label_visibility="collapsed",
+    )
+else:
+    st.sidebar.caption("暂无历史记录")
 
-selected_task_id = st.sidebar.selectbox(
-    "选择任务",
-    options=[None] + [t.id for t in tasks],
-    format_func=lambda x: f"#{x}" if x else "—",
-    label_visibility="collapsed",
-)
+# ===== 主区域 =====
+st.title("🤖 个人 Agent")
 
-# --- Main ---
-st.title("🤖 Personal Agent")
-
-# New task input
-st.subheader("新建任务")
+# --- 新建任务 ---
+st.subheader("📝 新建任务")
 col1, col2 = st.columns([5, 1])
 with col1:
-    new_task = st.text_input(
-        "输入任务描述",
+    task_input = st.text_input(
+        "任务描述",
         placeholder="例如：帮我调研 DeepSeek V3 的特点并写一份报告",
         label_visibility="collapsed",
     )
 with col2:
-    run_btn = st.button("🚀 执行", type="primary", use_container_width=True)
+    go_btn = st.button("🚀 开始执行", type="primary", use_container_width=True)
 
-if run_btn and new_task.strip():
-    # Create DB record
-    db_task = create_task(title=new_task[:100], description=new_task)
+if go_btn and task_input.strip():
+    db_task = create_task(title=task_input[:100], description=task_input)
     update_task_status(db_task.id, TaskStatus.RUNNING)
     run_record = create_workflow_run(db_task.id)
 
     try:
-        # === Phase 1: Planning ===
-        with st.status("🎯 正在规划任务...", expanded=True) as status:
-            provider = DeepSeekProvider()
+        provider = DeepSeekProvider()
 
-            # Run just the planner first to get the plan
-            from src.engine.nodes.planner import PlannerNode
-            planner = PlannerNode(provider)
-            plan_state = planner({"task": new_task})
+        # 阶段一：拆解任务
+        st.divider()
+        st.markdown("### 🎯 第一步：拆解任务")
+        st.info("正在调用 AI 分析你的任务...")
 
-            plan = plan_state.get("plan", [])
-            errors = plan_state.get("errors", [])
+        from src.engine.nodes.planner import PlannerNode
+        planner = PlannerNode(provider)
+        plan_state = planner({"task": task_input})
+        plan = plan_state.get("plan", [])
+        plan_errors = plan_state.get("errors", [])
 
-            if errors:
-                st.error(f"规划失败: {errors[0].get('detail', str(errors[0]))}")
-                st.stop()
+        if plan_errors:
+            st.error(f"任务拆解失败：{plan_errors[0].get('detail', '')}")
+            st.stop()
 
-            st.write(f"任务已拆解为 **{len(plan)}** 步：")
-            for i, step in enumerate(plan):
-                emoji = {"research": "🔍", "write": "✍️", "review": "🔎"}.get(step.get("type", ""), "📌")
-                st.write(f"  {emoji} **{i+1}**. {step.get('description', '')}")
+        st.success(f"任务已拆解为 **{len(plan)}** 个子任务：")
+        emoji_map = {"research": "🔍 搜索", "write": "✍️ 写作", "review": "🔎 审核"}
+        for i, s in enumerate(plan):
+            tag = emoji_map.get(s.get("type", ""), "📌")
+            st.write(f"  **{i+1}**. [{tag}] {s.get('description', '')}")
 
-            status.update(label="✅ 规划完成！开始执行...", state="complete")
+        # 阶段二：执行工作流
+        st.divider()
+        st.markdown("### ⚙️ 第二步：执行工作流")
+        st.info("Agent 正在分步执行，请稍候...")
 
-        # === Phase 2: Execute full workflow ===
-        with st.status("⚙️ 正在执行工作流...", expanded=True) as exec_status:
-            result = run_workflow(provider, new_task)
+        result = run_workflow(provider, task_input)
 
-            results = result.get("results", {})
-            exec_errors = result.get("errors", [])
+        results = result.get("results", {})
+        exec_errors = result.get("errors", [])
 
-            for i, step in enumerate(plan):
-                step_key = str(i)
-                if step_key in results:
-                    st.write(f"✅ **Step {i+1}** 完成")
-                else:
-                    st.write(f"❌ **Step {i+1}** 失败或跳过")
-
-            if exec_errors:
-                exec_status.update(label=f"⚠️ 执行完成，有 {len(exec_errors)} 个警告", state="complete")
+        # 显示每步状态
+        for i in range(len(plan)):
+            if str(i) in results:
+                st.success(f"✅ 步骤 {i+1} 完成")
             else:
-                exec_status.update(label="✅ 执行完成！", state="complete")
+                st.error(f"❌ 步骤 {i+1} 失败")
 
-        # === Show final result ===
+        # 阶段三：显示结果
         st.divider()
-
-        # Show plan summary
-        st.subheader("📝 执行计划")
-        for i, step in enumerate(plan):
-            done = str(i) in results
-            icon = "✅" if done else "❌"
-            st.write(f"{icon} **{i+1}**: {step.get('description', '')}")
-
-        # Show final output
-        st.divider()
-        st.subheader("📄 最终结果")
+        st.markdown("### 📄 最终结果")
         final = result.get("final_output", "无输出")
         st.markdown(final)
 
-        # Show errors
-        all_errors = result.get("errors", [])
-        if all_errors:
-            with st.expander(f"⚠️ {len(all_errors)} 个警告/错误"):
-                for e in all_errors:
+        if exec_errors:
+            with st.expander(f"⚠️ {len(exec_errors)} 个警告"):
+                for e in exec_errors:
                     st.warning(e.get("detail", str(e)))
 
         update_task_status(db_task.id, TaskStatus.COMPLETED)
         update_workflow_run(run_record.id, str(result), TaskStatus.COMPLETED)
-        st.success(f"✅ 任务完成！ID: {db_task.id}")
+        st.success(f"✅ 任务完成！编号: {db_task.id}")
 
     except Exception as e:
         update_task_status(db_task.id, TaskStatus.FAILED)
         update_workflow_run(run_record.id, "{}", TaskStatus.FAILED)
         st.error(f"❌ 执行失败: {str(e)}")
 
-# Show selected task detail
-if selected_task_id:
+# ===== 查看历史任务详情 =====
+if selected_id:
     st.divider()
-    task = get_task(selected_task_id)
+    task = get_task(selected_id)
     if task:
-        status_emoji = {"pending": "⏳", "running": "🔄", "completed": "✅", "failed": "❌"}
-        st.subheader(f"📋 任务 #{task.id}  {status_emoji.get(task.status.value, '')}")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.write(f"**状态**: {task.status.value}")
-            st.write(f"**标题**: {task.title}")
-        with col_b:
-            st.write(f"**创建时间**: {task.created_at[:19]}")
-            st.write(f"**更新时间**: {task.updated_at[:19]}")
-        st.text_area("描述", task.description, height=100, disabled=True)
+        s_emoji = {"pending": "⏳", "running": "🔄", "completed": "✅", "failed": "❌"}
+        st.subheader(f"📋 任务 #{task.id}  {s_emoji.get(task.status.value, '')}")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write(f"**状态**：{task.status.value}")
+            st.write(f"**标题**：{task.title}")
+        with c2:
+            st.write(f"**创建时间**：{task.created_at[:19]}")
+            st.write(f"**更新时间**：{task.updated_at[:19]}")
+        st.text_area("任务描述", task.description, height=100, disabled=True)
 
 elif tasks:
     st.divider()
-    st.info("👈 从左侧下拉菜单选择任务查看详情，或在上方输入新任务")
+    st.info("👈 从左侧下拉菜单选择历史任务查看详情")
