@@ -87,18 +87,17 @@ def build_workflow_graph(llm_provider: LLMProvider):
 
 
 def run_workflow(llm_provider: LLMProvider, task: str) -> dict:
-    """Run a complete workflow for a given task.
+    """Run a complete workflow for a given task using sequential execution.
 
-    Args:
-        llm_provider: The LLM backend to use.
-        task: The user's task description.
-
-    Returns:
-        The final WorkflowState as a dict.
+    Avoids LangGraph conditional edge issues by running nodes in a simple
+    loop instead of relying on graph routing.
     """
-    graph = build_workflow_graph(llm_provider)
+    planner = PlannerNode(llm_provider)
+    router = RouterNode()
+    executor = ExecutorNode(llm_provider)
+    reviewer = ReviewerNode(llm_provider)
 
-    initial_state: WorkflowState = {
+    state: dict = {
         "task": task,
         "plan": [],
         "current_step": 0,
@@ -109,5 +108,35 @@ def run_workflow(llm_provider: LLMProvider, task: str) -> dict:
         "retry_count": 0,
     }
 
-    final_state = graph.invoke(initial_state)
-    return final_state
+    # Step 1: Plan
+    state.update(planner(state))
+    if state.get("next_action") == "finish":
+        final = aggregator_node(state)
+        state.update(final)
+        return state
+
+    # Step 2: Execute each subtask
+    plan = state.get("plan", [])
+    step = 0
+    while step < len(plan):
+        state["current_step"] = step
+
+        # Route to agent
+        agent_name = router(state)
+        if agent_name == "aggregator":
+            break
+
+        # Execute
+        state.update(executor(state))
+
+        # Review
+        state.update(reviewer(state))
+
+        if state.get("next_action") == "retry":
+            continue  # re-run same step
+        step += 1
+
+    # Step 3: Aggregate
+    final = aggregator_node(state)
+    state.update(final)
+    return state
