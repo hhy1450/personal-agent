@@ -116,5 +116,15 @@ def inspect(task_id: int):
     click.echo(f"  Updated: {task.updated_at}")
 
 
+@cli.command()
+def web():
+    """Launch the Streamlit Web UI."""
+    import subprocess
+    from pathlib import Path
+
+    web_app = Path(__file__).parent.parent.parent / "web" / "app.py"
+    subprocess.run(["streamlit", "run", str(web_app)])
+
+
 if __name__ == "__main__":
     cli()
