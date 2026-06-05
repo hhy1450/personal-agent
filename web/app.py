@@ -13,8 +13,7 @@ from src.storage.database import (
 )
 from src.storage.models import TaskStatus
 from src.llm.deepseek import DeepSeekProvider
-from src.engine.graph import build_workflow_graph
-from src.engine.state import WorkflowState
+from src.engine.graph import run_workflow
 
 # Page config
 st.set_page_config(
@@ -68,108 +67,77 @@ if run_btn and new_task.strip():
     update_task_status(db_task.id, TaskStatus.RUNNING)
     run_record = create_workflow_run(db_task.id)
 
-    # Progress placeholders
-    status_area = st.empty()
-    plan_area = st.empty()
-    result_area = st.empty()
-
     try:
-        # Build graph and stream execution node by node
-        provider = DeepSeekProvider()
-        graph = build_workflow_graph(provider)
+        # === Phase 1: Planning ===
+        with st.status("🎯 正在规划任务...", expanded=True) as status:
+            provider = DeepSeekProvider()
 
-        initial_state: WorkflowState = {
-            "task": new_task,
-            "plan": [],
-            "current_step": 0,
-            "results": {},
-            "final_output": "",
-            "errors": [],
-            "next_action": "continue",
-        }
+            # Run just the planner first to get the plan
+            from src.engine.nodes.planner import PlannerNode
+            planner = PlannerNode(provider)
+            plan_state = planner({"task": new_task})
 
-        # Stream each node's output
-        step_num = 0
-        final_state = None
+            plan = plan_state.get("plan", [])
+            errors = plan_state.get("errors", [])
 
-        for chunk in graph.stream(initial_state, stream_mode="updates"):
-            step_num += 1
-            node_name = list(chunk.keys())[0]
-            node_data = chunk[node_name]
-
-            # Show current step
-            plan = node_data.get("plan", [])
-            results = node_data.get("results", {})
-            errors = node_data.get("errors", [])
-
-            # Build status message
-            node_labels = {
-                "planner": "🎯 正在规划任务...",
-                "router_conditional": "🔀 正在路由...",
-                "researcher": "🔍 Researcher 正在搜索信息...",
-                "writer": "✍️ Writer 正在撰写内容...",
-                "reviewer_node": "🔎 Reviewer 正在审核结果...",
-                "aggregator": "📦 正在汇总结果...",
-            }
-            label = node_labels.get(node_name, f"⚙️ 执行中: {node_name}")
-            status_area.info(f"**Step {step_num}**: {label}")
-
-            # Show plan once available
-            if plan:
-                lines = []
-                for i, s in enumerate(plan):
-                    done = str(i) in results
-                    icon = "✅" if done else "⏳"
-                    lines.append(f"{icon} **{i+1}**. {s.get('description', '')}")
-                plan_area.markdown("### 📝 执行计划\n" + "\n".join(lines))
-
-            # Show partial results
-            if results:
-                parts = ["### 📄 当前结果"]
-                for k, v in sorted(results.items()):
-                    parts.append(f"**Step {int(k)+1}**:\n{v[:800]}")
-                result_area.markdown("\n\n".join(parts))
-
-            # Show errors
             if errors:
-                for e in errors[-2:]:  # Show last 2 errors
-                    st.warning(f"⚠️ {e.get('detail', str(e))}")
+                st.error(f"规划失败: {errors[0].get('detail', str(errors[0]))}")
+                st.stop()
 
-            final_state = node_data
+            st.write(f"任务已拆解为 **{len(plan)}** 步：")
+            for i, step in enumerate(plan):
+                emoji = {"research": "🔍", "write": "✍️", "review": "🔎"}.get(step.get("type", ""), "📌")
+                st.write(f"  {emoji} **{i+1}**. {step.get('description', '')}")
 
-        # Show completion
-        if final_state:
-            final = final_state.get("final_output", "无输出")
-            status_area.empty()
-            plan_area.empty()
-            result_area.empty()
+            status.update(label="✅ 规划完成！开始执行...", state="complete")
 
-            # Re-show final plan
-            plan = final_state.get("plan", [])
-            results = final_state.get("results", {})
-            if plan:
-                st.subheader("📝 执行计划")
-                for i, s in enumerate(plan):
-                    done = str(i) in results
-                    icon = "✅" if done else "⚠️"
-                    st.write(f"{icon} **{i+1}**: {s.get('description', '')}")
+        # === Phase 2: Execute full workflow ===
+        with st.status("⚙️ 正在执行工作流...", expanded=True) as exec_status:
+            result = run_workflow(provider, new_task)
 
-            st.divider()
-            st.subheader("📄 最终结果")
-            st.markdown(final)
+            results = result.get("results", {})
+            exec_errors = result.get("errors", [])
 
-            error_list = final_state.get("errors", [])
-            if error_list:
-                st.warning(f"遇到 {len(error_list)} 个警告")
-                for e in error_list:
-                    st.error(e.get("detail", str(e)))
+            for i, step in enumerate(plan):
+                step_key = str(i)
+                if step_key in results:
+                    st.write(f"✅ **Step {i+1}** 完成")
+                else:
+                    st.write(f"❌ **Step {i+1}** 失败或跳过")
+
+            if exec_errors:
+                exec_status.update(label=f"⚠️ 执行完成，有 {len(exec_errors)} 个警告", state="complete")
+            else:
+                exec_status.update(label="✅ 执行完成！", state="complete")
+
+        # === Show final result ===
+        st.divider()
+
+        # Show plan summary
+        st.subheader("📝 执行计划")
+        for i, step in enumerate(plan):
+            done = str(i) in results
+            icon = "✅" if done else "❌"
+            st.write(f"{icon} **{i+1}**: {step.get('description', '')}")
+
+        # Show final output
+        st.divider()
+        st.subheader("📄 最终结果")
+        final = result.get("final_output", "无输出")
+        st.markdown(final)
+
+        # Show errors
+        all_errors = result.get("errors", [])
+        if all_errors:
+            with st.expander(f"⚠️ {len(all_errors)} 个警告/错误"):
+                for e in all_errors:
+                    st.warning(e.get("detail", str(e)))
 
         update_task_status(db_task.id, TaskStatus.COMPLETED)
-        update_workflow_run(run_record.id, str(final_state) if final_state else "{}", TaskStatus.COMPLETED)
+        update_workflow_run(run_record.id, str(result), TaskStatus.COMPLETED)
         st.success(f"✅ 任务完成！ID: {db_task.id}")
 
     except Exception as e:
-        status_area.empty()
         update_task_status(db_task.id, TaskStatus.FAILED)
         update_workflow_run(run_record.id, "{}", TaskStatus.FAILED)
         st.error(f"❌ 执行失败: {str(e)}")
