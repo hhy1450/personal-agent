@@ -34,9 +34,13 @@ class ReviewerNode:
         last_result = results.get(str(last_step), "")
         task = state.get("task", "")
 
+        retry_count = state.get("retry_count", 0)
+
         # Quick heuristic: if result starts with error, it failed
         if last_result.startswith("Error:"):
-            return {"next_action": "retry"}
+            if retry_count >= 3:
+                return {"next_action": "continue", "retry_count": 0}
+            return {"next_action": "retry", "retry_count": retry_count + 1}
 
         try:
             agent = self._get_agent()
@@ -49,9 +53,12 @@ class ReviewerNode:
             verdict = agent.run(task=review_prompt, context="")
 
             if "APPROVED" in verdict.upper():
-                return {"next_action": "continue"}
+                return {"next_action": "continue", "retry_count": 0}
             else:
-                return {"next_action": "retry"}
+                # Give up after 3 retries on same step
+                if retry_count >= 3:
+                    return {"next_action": "continue", "retry_count": 0}
+                return {"next_action": "retry", "retry_count": retry_count + 1}
         except Exception:
             # If reviewer fails, be lenient — continue anyway
             return {"next_action": "continue"}

@@ -106,6 +106,7 @@ def run_workflow(llm_provider: LLMProvider, task: str) -> dict:
         "final_output": "",
         "errors": [],
         "next_action": "continue",
+        "retry_count": 0,
     }
 
     final_state = graph.invoke(initial_state)

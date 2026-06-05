@@ -17,3 +17,4 @@ class WorkflowState(TypedDict):
     final_output: str               # Aggregated final result
     errors: list[dict]              # Error log: [{step, type, detail}]
     next_action: str                # Router decision: "continue" | "finish" | "retry"
+    retry_count: int                # Current step retry counter (max 3)
