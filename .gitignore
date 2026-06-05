@@ -16,6 +16,7 @@ venv/
 
 # Workspace (runtime files)
 workspace/
+!workspace/.gitkeep
 
 # OS
 .DS_Store
