@@ -92,6 +92,7 @@ class ExecutorNode:
             system_prompt=prompt,
             tools=tools,
             temperature=0.1,
+            max_retries=2,
         )
         agent = Agent(config, self.llm)
         self._agent_cache[agent_name] = agent

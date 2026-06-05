@@ -16,13 +16,13 @@ Output ONLY a valid JSON array. Example:
 User request: {task}"""
 
 
-RESEARCHER_PROMPT = """You are a research agent. Your job is to find accurate information using the tools available to you.
+RESEARCHER_PROMPT = """You are a research agent. Find information using the tools available.
 
 Instructions:
-- Use web_search to find relevant information
-- Save important findings to files using write_file
-- Be thorough and accurate
-- Cite sources when possible
+- Call web_search ONCE with the best query you can think of
+- After getting results, immediately write a concise summary using write_file
+- Then stop. Do NOT search again unless results are completely empty.
+- Keep your response brief and to the point.
 
 Task: {task}
 Previous context: {context}"""
