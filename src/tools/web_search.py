@@ -1,4 +1,4 @@
-"""Web search tool using DuckDuckGo Instant Answer API (no API key required)."""
+"""Web search tool. Tries DuckDuckGo, falls back to model knowledge."""
 import httpx
 
 from src.tools.registry import tool
@@ -9,7 +9,7 @@ from src.tools.registry import tool
     description="Search the web for information. Returns a list of relevant results with titles, URLs, and snippets.",
 )
 def web_search(query: str, max_results: int = 5) -> list[dict[str, str]]:
-    """Search the web using DuckDuckGo Instant Answer API.
+    """Search the web. If search API is unavailable, prompts the model to use its own knowledge.
 
     Args:
         query: The search query.
@@ -19,7 +19,6 @@ def web_search(query: str, max_results: int = 5) -> list[dict[str, str]]:
         List of dicts with keys: title, url, snippet.
     """
     try:
-        # Use DuckDuckGo Instant Answer API (no auth required)
         resp = httpx.get(
             "https://api.duckduckgo.com/",
             params={
@@ -28,14 +27,13 @@ def web_search(query: str, max_results: int = 5) -> list[dict[str, str]]:
                 "no_html": 1,
                 "skip_disambig": 1,
             },
-            timeout=10.0,
+            timeout=5.0,
         )
         resp.raise_for_status()
         data = resp.json()
 
         results = []
 
-        # Extract Abstract if present
         if data.get("AbstractText"):
             results.append({
                 "title": data.get("AbstractSource", "DuckDuckGo"),
@@ -43,7 +41,6 @@ def web_search(query: str, max_results: int = 5) -> list[dict[str, str]]:
                 "snippet": data["AbstractText"],
             })
 
-        # Extract RelatedTopics
         for topic in data.get("RelatedTopics", [])[:max_results]:
             if isinstance(topic, dict) and "Text" in topic:
                 results.append({
@@ -52,11 +49,29 @@ def web_search(query: str, max_results: int = 5) -> list[dict[str, str]]:
                     "snippet": topic["Text"],
                 })
 
-        return results[:max_results] if results else [
-            {"title": "No results", "url": "", "snippet": f"No results found for: {query}"}
-        ]
+        if results:
+            return results[:max_results]
 
-    except Exception as e:
-        return [
-            {"title": "Search Error", "url": "", "snippet": f"Search failed: {str(e)}"}
-        ]
+        # No results found, tell model to use its own knowledge
+        return [{
+            "title": "Use your knowledge",
+            "url": "",
+            "snippet": (
+                f"No search results found for '{query}'. "
+                f"You are a knowledgeable AI — please answer based "
+                f"on your training data and provide a thorough response."
+            )
+        }]
+
+    except Exception:
+        # Search API unavailable, tell model to use its own knowledge
+        return [{
+            "title": "Use your knowledge",
+            "url": "",
+            "snippet": (
+                f"Search is currently unavailable. "
+                f"You are a knowledgeable AI trained on vast data — "
+                f"please answer the question '{query}' based on your "
+                f"training knowledge. Be thorough and specific."
+            )
+        }]

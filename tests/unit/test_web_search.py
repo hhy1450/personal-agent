@@ -52,13 +52,13 @@ def test_web_search_empty_results():
         results = web_search(query="xyznonexistent12345")
 
     assert len(results) == 1
-    assert "No results" in results[0]["title"]
+    assert "Use your knowledge" in results[0]["title"]
 
 
 def test_web_search_error_handling():
-    """web_search should return error info instead of raising."""
+    """web_search should return fallback when search fails."""
     with patch("src.tools.web_search.httpx.get", side_effect=Exception("Connection error")):
         results = web_search(query="test")
 
     assert len(results) == 1
-    assert "Search Error" in results[0]["title"]
+    assert "Use your knowledge" in results[0]["title"]
