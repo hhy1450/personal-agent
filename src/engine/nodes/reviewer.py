@@ -40,28 +40,36 @@ class ReviewerNode:
         if last_result.startswith("Error:"):
             if retry_count >= 3:
                 return {"next_action": "continue", "retry_count": 0}
-            return {"next_action": "retry", "retry_count": retry_count + 1}
+            return {
+                "next_action": "retry",
+                "retry_count": retry_count + 1,
+                "current_step": last_step,
+            }
 
-        try:
-            agent = self._get_agent()
-            review_prompt = (
-                f"Original task: {task}\n\n"
-                f"Output to review:\n{last_result[:1000]}\n\n"
-                f"Reply with 'APPROVED' if this meets requirements, "
-                f"or explain what needs improvement."
-            )
-            verdict = agent.run(task=review_prompt, context="")
+        # Skip reviewer LLM call for simple tasks — just approve
+        if "APPROVED" not in last_result.upper():
+            try:
+                agent = self._get_agent()
+                review_prompt = (
+                    f"Original task: {task}\n\n"
+                    f"Output to review:\n{last_result[:1000]}\n\n"
+                    f"Reply with APPROVED if this meets requirements, "
+                    f"or explain what needs improvement."
+                )
+                verdict = agent.run(task=review_prompt, context="")
 
-            if "APPROVED" in verdict.upper():
-                return {"next_action": "continue", "retry_count": 0}
-            else:
-                # Give up after 3 retries on same step
-                if retry_count >= 3:
-                    return {"next_action": "continue", "retry_count": 0}
-                return {"next_action": "retry", "retry_count": retry_count + 1}
-        except Exception:
-            # If reviewer fails, be lenient — continue anyway
-            return {"next_action": "continue"}
+                if "APPROVED" not in verdict.upper():
+                    if retry_count >= 3:
+                        return {"next_action": "continue", "retry_count": 0}
+                    return {
+                        "next_action": "retry",
+                        "retry_count": retry_count + 1,
+                        "current_step": last_step,
+                    }
+            except Exception:
+                pass  # reviewer failed, continue anyway
+
+        return {"next_action": "continue", "retry_count": 0}
 
     def _get_agent(self) -> Agent:
         """Get or create the reviewer agent."""

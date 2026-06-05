@@ -25,6 +25,8 @@ class DeepSeekProvider(LLMProvider):
         self._client = OpenAI(
             api_key=self._api_key,
             base_url=self._base_url,
+            timeout=30.0,
+            max_retries=1,
         )
 
     @property
