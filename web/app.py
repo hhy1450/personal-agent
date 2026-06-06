@@ -17,6 +17,16 @@ from src.engine.graph import run_workflow
 
 st.set_page_config(page_title="个人 Agent", page_icon="🤖", layout="wide")
 
+# 隐藏 Streamlit 默认的 Deploy 按钮和菜单
+st.markdown("""
+<style>
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    .stDeployButton {display: none;}
+</style>
+""", unsafe_allow_html=True)
+
 init_db()
 seed_agent_configs()
 
@@ -87,7 +97,7 @@ if go_btn and task_input.strip():
         type_emoji = {"research": "🔍 搜索", "write": "✍️ 写作", "review": "🔎 审核"}
         for i, s in enumerate(plan):
             tag = type_emoji.get(s.get("type", ""), "📌")
-            st.write(f"  **{i+1}**. [{tag}] {s.get('description', '')}")
+            st.markdown(f"<small>**{i+1}**. [{tag}] {s.get('description', '')}</small>", unsafe_allow_html=True)
 
         # 阶段二：执行工作流
         st.divider()
@@ -101,9 +111,9 @@ if go_btn and task_input.strip():
 
         for i in range(len(plan)):
             if str(i) in results:
-                st.success(f"✅ 步骤 {i+1} 完成")
+                st.markdown(f"<small>✅ 步骤 {i+1} 完成</small>", unsafe_allow_html=True)
             else:
-                st.error(f"❌ 步骤 {i+1} 失败")
+                st.markdown(f"<small>❌ 步骤 {i+1} 失败</small>", unsafe_allow_html=True)
 
         # 阶段三：显示结果
         st.divider()
