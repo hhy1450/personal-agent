@@ -1,5 +1,6 @@
 """Personal Agent Streamlit Web 界面."""
 import sys
+import json
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -8,7 +9,7 @@ import streamlit as st
 from src.storage.database import (
     init_db, seed_agent_configs,
     create_task, get_task, list_tasks, update_task_status,
-    create_workflow_run, update_workflow_run,
+    create_workflow_run, update_workflow_run, get_connection,
 )
 from src.storage.models import TaskStatus
 from src.llm.deepseek import DeepSeekProvider
@@ -27,14 +28,18 @@ st.sidebar.divider()
 st.sidebar.subheader("📋 历史任务")
 
 tasks = list_tasks(limit=50)
-task_options = {t.id: f"#{t.id} {t.title[:25]}" for t in tasks}
+emoji_map = {"pending": "⏳", "running": "🔄", "completed": "✅", "failed": "❌"}
+task_options = {
+    t.id: f"{emoji_map.get(t.status.value, '')} #{t.id} {t.title[:30]}"
+    for t in tasks
+}
 
 selected_id = None
 if task_options:
     selected_id = st.sidebar.selectbox(
         "选择一个任务查看详情",
-        options=[""] + list(task_options.keys()),
-        format_func=lambda x: task_options.get(x, "—") if x else "—",
+        options=[None] + list(task_options.keys()),
+        format_func=lambda x: task_options.get(x, "请选择...") if x else "请选择...",
         label_visibility="collapsed",
     )
 else:
@@ -79,9 +84,9 @@ if go_btn and task_input.strip():
             st.stop()
 
         st.success(f"任务已拆解为 **{len(plan)}** 个子任务：")
-        emoji_map = {"research": "🔍 搜索", "write": "✍️ 写作", "review": "🔎 审核"}
+        type_emoji = {"research": "🔍 搜索", "write": "✍️ 写作", "review": "🔎 审核"}
         for i, s in enumerate(plan):
-            tag = emoji_map.get(s.get("type", ""), "📌")
+            tag = type_emoji.get(s.get("type", ""), "📌")
             st.write(f"  **{i+1}**. [{tag}] {s.get('description', '')}")
 
         # 阶段二：执行工作流
@@ -94,7 +99,6 @@ if go_btn and task_input.strip():
         results = result.get("results", {})
         exec_errors = result.get("errors", [])
 
-        # 显示每步状态
         for i in range(len(plan)):
             if str(i) in results:
                 st.success(f"✅ 步骤 {i+1} 完成")
@@ -126,18 +130,58 @@ if selected_id:
     st.divider()
     task = get_task(selected_id)
     if task:
-        s_emoji = {"pending": "⏳", "running": "🔄", "completed": "✅", "failed": "❌"}
-        st.subheader(f"📋 任务 #{task.id}  {s_emoji.get(task.status.value, '')}")
+        s_emoji = emoji_map.get(task.status.value, "")
+        st.subheader(f"📋 任务 #{task.id}  {s_emoji} {task.status.value}")
 
         c1, c2 = st.columns(2)
         with c1:
-            st.write(f"**状态**：{task.status.value}")
             st.write(f"**标题**：{task.title}")
-        with c2:
             st.write(f"**创建时间**：{task.created_at[:19]}")
+        with c2:
             st.write(f"**更新时间**：{task.updated_at[:19]}")
-        st.text_area("任务描述", task.description, height=100, disabled=True)
+        st.text_area("任务描述", task.description, height=80, disabled=True)
+
+        # 查询执行结果
+        conn = get_connection()
+        runs = conn.execute(
+            "SELECT state_json, status, started_at, finished_at "
+            "FROM workflow_runs WHERE task_id = ? ORDER BY id DESC LIMIT 1",
+            (selected_id,),
+        ).fetchall()
+        conn.close()
+
+        if runs:
+            st.divider()
+            st.markdown("### 📄 执行结果")
+            for run in runs:
+                state_json = run["state_json"]
+                try:
+                    state = json.loads(state_json.replace("'", '"')) if isinstance(state_json, str) else {}
+                except json.JSONDecodeError:
+                    try:
+                        state = eval(state_json) if state_json and state_json != "{}" else {}
+                    except Exception:
+                        state = {}
+
+                final_output = state.get("final_output", "")
+                if isinstance(final_output, str) and final_output:
+                    st.markdown(final_output)
+                else:
+                    st.info("该任务的最终输出不可用")
+
+                run_time = ""
+                if run["started_at"] and run["finished_at"]:
+                    from datetime import datetime
+                    try:
+                        t0 = datetime.fromisoformat(run["started_at"])
+                        t1 = datetime.fromisoformat(run["finished_at"])
+                        run_time = f" | 耗时: {(t1-t0).total_seconds():.0f}秒"
+                    except Exception:
+                        pass
+                st.caption(f"状态: {run['status']}{run_time}")
+        else:
+            st.info("暂无执行记录")
 
 elif tasks:
     st.divider()
-    st.info("👈 从左侧下拉菜单选择历史任务查看详情")
+    st.info("👈 从左侧下拉菜单选择历史任务，查看完整执行结果")
