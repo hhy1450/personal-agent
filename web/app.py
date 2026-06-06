@@ -17,12 +17,6 @@ from src.engine.graph import run_workflow
 
 st.set_page_config(page_title="个人 Agent", page_icon="🤖", layout="wide")
 
-# 隐藏 Streamlit 默认的 Deploy 按钮
-st.markdown("""
-<style>
-    .stDeployButton {display: none;}
-</style>
-""", unsafe_allow_html=True)
 
 init_db()
 seed_agent_configs()
