@@ -146,7 +146,7 @@ if selected_id:
         conn = get_connection()
         runs = conn.execute(
             "SELECT state_json, status, started_at, finished_at "
-            "FROM workflow_runs WHERE task_id = ? ORDER BY id DESC LIMIT 1",
+            "FROM workflow_runs WHERE task_id = %s ORDER BY id DESC LIMIT 1",
             (selected_id,),
         ).fetchall()
         conn.close()

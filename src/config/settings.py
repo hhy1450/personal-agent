@@ -17,8 +17,12 @@ LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-chat")
 # Workspace
 WORKSPACE_DIR = PROJECT_ROOT / os.getenv("WORKSPACE_DIR", "workspace")
 
-# Database
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///personal_agent.db")
+# MySQL
+MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
+MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
+MYSQL_USER = os.getenv("MYSQL_USER", "root")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "personal_agent")
 
 # Log level
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

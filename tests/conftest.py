@@ -1,4 +1,5 @@
 """Shared test fixtures."""
+import os
 import sys
 from pathlib import Path
 
@@ -6,6 +7,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _restore_mysql_database():
+    """Ensure MYSQL_DATABASE env var is always restored after each test."""
+    original = os.environ.get("MYSQL_DATABASE", "personal_agent")
+    yield
+    os.environ["MYSQL_DATABASE"] = original
 
 
 @pytest.fixture

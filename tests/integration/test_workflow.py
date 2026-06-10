@@ -1,10 +1,28 @@
-"""Integration test: full workflow with mocked LLM."""
+"""Integration test: full workflow with mocked LLM (MySQL)."""
+import os
 from unittest.mock import MagicMock
 
 from src.engine.graph import run_workflow
-from src.storage.database import init_db, create_task, update_task_status, get_task
+from src.storage.database import (
+    init_db, get_connection,
+    create_task, update_task_status, get_task,
+    create_workflow_run, update_workflow_run,
+)
 from src.storage.models import TaskStatus
 from src.tools.sandbox import Sandbox, set_sandbox
+
+
+def _use_test_db():
+    """Switch to test database and clean tables."""
+    os.environ["MYSQL_DATABASE"] = "personal_agent_test"
+    init_db()
+    conn = get_connection()
+    conn.execute("DELETE FROM workflow_runs")
+    conn.execute("DELETE FROM agent_configs")
+    conn.execute("DELETE FROM tasks")
+    conn.commit()
+    conn.close()
+    return conn  # unused, but consistent
 
 
 def _make_response(content=None, tool_calls=None):
@@ -23,23 +41,10 @@ class TestFullWorkflow:
     """End-to-end workflow tests with mocked LLM."""
 
     def test_workflow_with_mocked_llm(self, tmp_path):
-        """Full workflow from task to result with mocked LLM responses.
-
-        Verifies the complete graph executes: planner -> router -> researcher
-        -> reviewer -> router -> writer -> reviewer -> aggregator.
-        """
+        """Full workflow from task to result with mocked LLM responses."""
         mock_llm = MagicMock()
         mock_llm.model_name = "test-model"
 
-        # The graph calls chat_completion in this order for a 2-step plan
-        # (research + write), with reviewer after each step:
-        #   1. Planner: decompose task into JSON plan
-        #   2. Researcher Agent: request tool call (web_search)
-        #   3. Researcher Agent: final text response
-        #   4. Reviewer Agent: review researcher output -> APPROVED
-        #   5. Writer Agent: request tool call (read_file)
-        #   6. Writer Agent: final text response
-        #   7. Reviewer Agent: review writer output -> APPROVED
         mock_llm.chat_completion.side_effect = [
             # 1. Planner
             _make_response(content='[{"type": "research", "description": "Search for AI info"}, {"type": "write", "description": "Write summary"}]'),
@@ -63,7 +68,6 @@ class TestFullWorkflow:
             _make_response(content="APPROVED"),
         ]
 
-        # Set up isolated sandbox under tmp_path
         sandbox = Sandbox(tmp_path)
         set_sandbox(sandbox)
 
@@ -78,7 +82,6 @@ class TestFullWorkflow:
             assert result["final_output"] != ""
             assert "AI" in result["final_output"]
         finally:
-            # Reset global sandbox to avoid leaking into other tests
             set_sandbox(None)
 
     def test_workflow_empty_task(self):
@@ -90,7 +93,6 @@ class TestFullWorkflow:
 
         assert result is not None
         assert "final_output" in result or "errors" in result
-        # Should either have errors or an empty plan
         assert len(result.get("plan", [])) == 0 or len(result.get("errors", [])) > 0
 
     def test_workflow_single_step_plan(self, tmp_path):
@@ -112,7 +114,6 @@ class TestFullWorkflow:
             _make_response(content="APPROVED"),
         ]
 
-        # Set up isolated sandbox
         sandbox = Sandbox(tmp_path)
         set_sandbox(sandbox)
 
@@ -128,69 +129,48 @@ class TestFullWorkflow:
 
 
 class TestStorageIntegration:
-    """Integration tests for storage layer."""
+    """Integration tests for storage layer (MySQL)."""
 
-    def test_task_lifecycle(self, tmp_path):
+    def test_task_lifecycle(self):
         """Full task lifecycle: create -> update to running -> complete."""
-        import src.storage.database as db_module
+        _use_test_db()
 
-        db_path = tmp_path / "test.db"
-        original = db_module.DB_PATH
-        db_module.DB_PATH = db_path
-        init_db(db_path)
+        task = create_task("Integration test", "Testing lifecycle")
+        assert task.id is not None
+        assert task.status == TaskStatus.PENDING
 
-        try:
-            # Create
-            task = create_task("Integration test", "Testing lifecycle", db_path=db_path)
-            assert task.id is not None
-            assert task.status == TaskStatus.PENDING
+        # Update to running
+        update_task_status(task.id, TaskStatus.RUNNING)
+        t = get_task(task.id)
+        assert t is not None
+        assert t.status == TaskStatus.RUNNING
 
-            # Update to running
-            update_task_status(task.id, TaskStatus.RUNNING, db_path=db_path)
-            t = get_task(task.id, db_path=db_path)
-            assert t is not None
-            assert t.status == TaskStatus.RUNNING
+        # Complete
+        update_task_status(task.id, TaskStatus.COMPLETED)
+        t = get_task(task.id)
+        assert t.status == TaskStatus.COMPLETED
 
-            # Complete
-            update_task_status(task.id, TaskStatus.COMPLETED, db_path=db_path)
-            t = get_task(task.id, db_path=db_path)
-            assert t.status == TaskStatus.COMPLETED
-        finally:
-            db_module.DB_PATH = original
-
-    def test_workflow_run_record(self, tmp_path):
+    def test_workflow_run_record(self):
         """Workflow run records should be creatable and updatable."""
-        import src.storage.database as db_module
-        from src.storage.database import create_workflow_run, update_workflow_run
+        _use_test_db()
 
-        db_path = tmp_path / "test.db"
-        original = db_module.DB_PATH
-        db_module.DB_PATH = db_path
-        init_db(db_path)
+        task = create_task("Workflow task", "Testing runs")
+        run = create_workflow_run(task.id)
+        assert run.id is not None
+        assert run.task_id == task.id
+        assert run.status == TaskStatus.RUNNING
 
-        try:
-            task = create_task("Workflow task", "Testing runs", db_path=db_path)
-            run = create_workflow_run(task.id, db_path=db_path)
-            assert run.id is not None
-            assert run.task_id == task.id
-            assert run.status == TaskStatus.RUNNING
+        update_workflow_run(
+            run.id,
+            '{"plan": [{"type": "research", "description": "test"}]}',
+            TaskStatus.COMPLETED,
+        )
 
-            update_workflow_run(
-                run.id,
-                '{"plan": [{"type": "research", "description": "test"}]}',
-                TaskStatus.COMPLETED,
-                db_path=db_path,
-            )
-
-            # Verify via direct query
-            from src.storage.database import get_connection
-            conn = get_connection(db_path)
-            row = conn.execute(
-                "SELECT * FROM workflow_runs WHERE id = ?", (run.id,)
-            ).fetchone()
-            conn.close()
-            assert row is not None
-            assert row["status"] == "completed"
-            assert "plan" in row["state_json"]
-        finally:
-            db_module.DB_PATH = original
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT * FROM workflow_runs WHERE id = %s", (run.id,)
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row["status"] == "completed"
+        assert "plan" in row["state_json"]
