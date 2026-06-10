@@ -1,8 +1,10 @@
 # Personal Agent MVP — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **📌 2026-06 更新：** 数据库已从 SQLite 迁移至 MySQL（pymysql + InnoDB），详见 `src/storage/database.py`。本文档为原始 MVP 计划，保留历史引用不变。
 
-**Goal:** Build the MVP of a multi-agent workflow automation app: LangGraph engine with Planner→Router→Executor→Reviewer, 3 Agents (Researcher/Writer/Reviewer), 3 Tools (web_search/read_file/write_file), DeepSeek LLM, CLI, and SQLite storage.
+**Goal:** Build the MVP of a multi-agent workflow automation app: LangGraph engine with Planner→Router→Executor→Reviewer, 3 Agents (Researcher/Writer/Reviewer), 3 Tools (web_search/read_file/write_file), DeepSeek LLM, CLI, and ~~SQLite~~ MySQL storage.
 
 **Architecture:** Layered Python app. Bottom-up: config → LLM provider (DeepSeek via OpenAI SDK) → Tool registry → Agent system → LangGraph workflow engine → CLI. Each layer is independently testable. Storage (SQLite) and workspace (file system) are cross-cutting.
 

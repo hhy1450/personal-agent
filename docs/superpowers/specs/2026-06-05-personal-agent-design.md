@@ -27,7 +27,7 @@
 | Web 框架 | **FastAPI** | 异步支持好，自动生成 API 文档 |
 | Web 界面 | **Streamlit** | 纯 Python，快速搭建，不需要前端技术栈 |
 | CLI 框架 | **Click** | 轻量，Python CLI 标准选择 |
-| 结构化存储 | **SQLite** | 零配置，单文件，足够个人使用 |
+| 结构化存储 | **MySQL** | 关系型数据库，支持并发、外键约束与数据完整性 |
 | 向量存储 | **ChromaDB** | 轻量，Python 原生，适合 Agent 长期记忆 |
 | 任务调度 | **APScheduler** | 支持 cron，任务可持久化 |
 | 包管理 | **uv + pyproject.toml** | 快速依赖解析，现代化 Python 工程 |
@@ -59,7 +59,7 @@
 ┌──────────────▼──────────────────────────────────┐
 │              基础设施层                             │
 │  LLM Provider  │  Storage  │  Vector DB  │  Cron  │
-│  (可插拔)       │ (SQLite)  │ (ChromaDB)  │ Timer  │
+│  (可插拔)       │ (MySQL)   │ (ChromaDB)  │ Timer  │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -187,7 +187,7 @@ def run_code(code: str, timeout: int = 30) -> dict:
 
 ## 6. 存储设计
 
-### 6.1 SQLite（结构化数据）
+### 6.1 MySQL（结构化数据）
 
 ```sql
 -- 任务表
@@ -313,7 +313,7 @@ personal-agent/
 │   │   └── main.py          # Click 命令定义
 │   ├── storage/             # 持久化层
 │   │   ├── __init__.py
-│   │   ├── database.py      # SQLite 操作
+│   │   ├── database.py      # MySQL 操作
 │   │   └── models.py        # ORM 模型
 │   └── config/              # 配置管理
 │       ├── __init__.py
@@ -343,7 +343,7 @@ personal-agent/
 - [x] 3 个 Tool：web_search、read_file、write_file
 - [x] CLI 单次任务
 - [x] DeepSeek API 集成
-- [x] SQLite 任务记录
+- [x] MySQL 任务记录
 
 ### v0.2.0
 
@@ -365,6 +365,6 @@ personal-agent/
 |------|------|------|
 | 框架 vs 自研 | **LangGraph** | 大二学生找日常实习，用成熟框架更务实；LangGraph 的图/状态/条件路由概念足够深入，面试有得聊 |
 | Web 框架 | **FastAPI + Streamlit** | FastAPI 异步性能好、自动文档；Streamlit 免去前端学习成本 |
-| 数据库 | **SQLite + ChromaDB** | 个人项目无需 MySQL/PostgreSQL，SQLite 零运维 |
+| 数据库 | **MySQL + ChromaDB** | MySQL 提供结构化数据持久化与外键约束，ChromaDB 提供向量检索 |
 | Agent 间通信 | **共享 State（TypedDict）** | LangGraph 原生模式，比消息队列简单，数据流可追踪 |
 | LLM 调用 | **DeepSeek + OpenAI SDK** | 兼容 OpenAI Function Calling 格式，成本低，中文强 |
