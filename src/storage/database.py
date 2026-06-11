@@ -1,4 +1,5 @@
 """MySQL database operations."""
+import logging
 import pymysql
 
 from src.config.settings import (
@@ -6,6 +7,8 @@ from src.config.settings import (
     MYSQL_PASSWORD, MYSQL_DATABASE,
 )
 from src.storage.models import Task, TaskStatus, WorkflowRun
+
+logger = logging.getLogger(__name__)
 
 
 def _current_database():
@@ -91,6 +94,7 @@ SCHEMA_SQL = """
 
 def init_db() -> None:
     """Initialise database schema (idempotent — safe to run every startup)."""
+    logger.info("Initialising database schema on %s:%s/%s", MYSQL_HOST, MYSQL_PORT, _current_database())
     conn = get_connection()
     for stmt in SCHEMA_SQL.split(";"):
         stmt = stmt.strip()
@@ -98,6 +102,7 @@ def init_db() -> None:
             conn.execute(stmt)
     conn.commit()
     conn.close()
+    logger.debug("Database schema initialised successfully")
 
 
 # ---- Task CRUD ----

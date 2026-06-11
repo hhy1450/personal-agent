@@ -2,6 +2,7 @@
 import sys
 import click
 
+from src.config.settings import setup_logging
 from src.llm.deepseek import DeepSeekProvider
 from src.engine.graph import run_workflow
 from src.storage.database import (
@@ -20,6 +21,7 @@ def cli():
     Break down complex tasks, execute them with AI agents,
     and get structured results.
     """
+    setup_logging()
     # Ensure database is ready
     init_db()
     seed_agent_configs()

@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import streamlit as st
+from src.config.settings import setup_logging
 from src.storage.database import (
     init_db, seed_agent_configs,
     create_task, get_task, list_tasks, update_task_status,
@@ -15,6 +16,8 @@ from src.storage.database import (
 from src.storage.models import TaskStatus
 from src.llm.deepseek import DeepSeekProvider
 from src.engine.graph import run_workflow
+
+setup_logging()
 
 st.set_page_config(page_title="个人 Agent", page_icon="🤖", layout="wide")
 

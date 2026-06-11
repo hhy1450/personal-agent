@@ -1,9 +1,12 @@
 """DeepSeek API provider using OpenAI-compatible SDK."""
+import logging
 
 from openai import OpenAI
 
 from src.llm.base import LLMProvider
 from src.config.settings import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, LLM_MODEL
+
+logger = logging.getLogger(__name__)
 
 
 class DeepSeekProvider(LLMProvider):
@@ -28,6 +31,7 @@ class DeepSeekProvider(LLMProvider):
             timeout=30.0,
             max_retries=1,
         )
+        logger.info("DeepSeekProvider initialised — model=%s base_url=%s", self._model, self._base_url)
 
     @property
     def model_name(self) -> str:
