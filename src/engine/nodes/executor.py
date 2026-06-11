@@ -85,9 +85,16 @@ class ExecutorNode:
                 "type": "Retryable",
                 "detail": str(e),
             })
+            # Also write an error result so the reviewer can see it,
+            # auto-reject, and properly track retry_count.
+            # Without this the reviewer sees no result → returns
+            # "continue" → infinite loop in the graph.
+            error_result = f"Error: {str(e)}"
+            results = dict(state.get("results", {}))
+            results[str(current_step)] = error_result
             return {
+                "results": results,
                 "errors": errors,
-                "next_action": "retry",
             }
 
     def _get_or_create_agent(self, agent_name: str) -> Agent:

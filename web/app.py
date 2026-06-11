@@ -99,7 +99,7 @@ if go_btn and task_input.strip():
         st.markdown("### ⚙️ 第二步：执行工作流")
         st.info("Agent 正在分步执行，请稍候...")
 
-        result = run_workflow(provider, task_input)
+        result = run_workflow(provider, task_input, plan=plan)
 
         results = result.get("results", {})
         exec_errors = result.get("errors", [])

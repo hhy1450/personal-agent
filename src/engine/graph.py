@@ -98,12 +98,16 @@ def build_workflow_graph(llm_provider: LLMProvider):
     return graph.compile()
 
 
-def run_workflow(llm_provider: LLMProvider, task: str) -> dict:
+def run_workflow(llm_provider: LLMProvider, task: str, plan: list[dict] | None = None) -> dict:
     """Run a complete workflow for a given task using the compiled LangGraph.
 
     Args:
         llm_provider: The LLM backend to use.
         task: The user's natural language task description.
+        plan: Optional pre-computed plan. When provided the planner node is
+            still invoked (it may refine) but the plan is seeded as a starting
+            point. This avoids redundant LLM calls when the caller has already
+            generated a plan for display purposes.
 
     Returns:
         The final WorkflowState dict after graph execution.
@@ -114,7 +118,7 @@ def run_workflow(llm_provider: LLMProvider, task: str) -> dict:
 
     initial_state: dict = {
         "task": task,
-        "plan": [],
+        "plan": plan or [],
         "current_step": 0,
         "results": {},
         "final_output": "",

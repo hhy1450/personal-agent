@@ -24,12 +24,24 @@ class PlannerNode:
     def __call__(self, state: WorkflowState) -> dict:
         """Execute the planner node.
 
+        If a non-empty plan is already present in state (e.g. seeded by
+        the caller), skip the LLM call to avoid redundant work.
+
         Args:
             state: Current workflow state with at least 'task' set.
 
         Returns:
             Partial state update with 'plan' and 'current_step'.
         """
+        # Reuse pre-seeded plan to avoid redundant LLM calls
+        existing_plan = state.get("plan", [])
+        if existing_plan:
+            logger.info("Using pre-seeded plan with %d step(s)", len(existing_plan))
+            return {
+                "current_step": 0,
+                "next_action": "continue",
+            }
+
         task = state.get("task", "")
         if not task:
             return {
