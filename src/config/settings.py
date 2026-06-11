@@ -1,5 +1,7 @@
 """Application configuration loaded from environment variables."""
+import logging
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -29,3 +31,38 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 # Max retries for agent tool calls
 MAX_RETRIES = 3
+
+
+def setup_logging(name: str = "personal_agent") -> logging.Logger:
+    """Configure structured logging for the application.
+
+    Sets up a consistent format across all modules:
+    ``HH:MM:SS [LEVEL] module: message``
+
+    Call once at startup (CLI or Web); individual modules get their
+    logger via ``logging.getLogger(__name__)`` and inherit this config.
+
+    Args:
+        name: Root logger name (default ``personal_agent``).
+
+    Returns:
+        The configured root logger.
+    """
+    level = getattr(logging, LOG_LEVEL.upper(), logging.INFO)
+
+    fmt = logging.Formatter(
+        "%(asctime)s [%(levelname)-5s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(fmt)
+    handler.setLevel(level)
+
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.handlers.clear()
+    logger.addHandler(handler)
+    logger.propagate = False
+
+    return logger
