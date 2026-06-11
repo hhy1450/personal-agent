@@ -5,8 +5,10 @@ OpenAI Function Calling JSON Schemas from type annotations and docstrings.
 """
 import inspect
 import json
+import logging
 from typing import Any, Callable
 
+logger = logging.getLogger(__name__)
 
 _registry: dict[str, "Tool"] = {}
 
@@ -121,5 +123,7 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> Any:
     """
     tool = get_tool(name)
     if tool is None:
+        logger.error("Tool '%s' not found in registry (available: %s)", name, list(_registry.keys()))
         raise ValueError(f"Tool '{name}' not found in registry")
+    logger.debug("Executing tool '%s' with args: %s", name, arguments)
     return tool(**arguments)

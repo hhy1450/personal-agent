@@ -1,10 +1,13 @@
 """Base agent implementation using LLM provider + tool execution loop."""
 import json
+import logging
 from typing import Any
 
 from src.agents.config import AgentConfig
 from src.llm.base import LLMProvider
 from src.tools.registry import get_tools_as_openai_schemas, execute_tool
+
+logger = logging.getLogger(__name__)
 
 
 class Agent:
@@ -44,6 +47,7 @@ class Agent:
         tool_schemas = get_tools_as_openai_schemas(self.config.tools) if self.config.tools else None
 
         for attempt in range(self.config.max_retries):
+            logger.debug("Agent '%s' — attempt %d/%d", self.config.name, attempt + 1, self.config.max_retries)
             response = self.llm.chat_completion(
                 messages=self._messages,
                 tools=tool_schemas,
@@ -56,6 +60,7 @@ class Agent:
             # If no tool calls, agent is done
             tool_calls = message.get("tool_calls") or []
             if not tool_calls:
+                logger.debug("Agent '%s' finished — no more tool calls", self.config.name)
                 return message.get("content") or ""
 
             # Add assistant message to history
@@ -74,10 +79,12 @@ class Agent:
                 except json.JSONDecodeError:
                     args = {}
 
+                logger.debug("Agent '%s' calling tool '%s'", self.config.name, tool_name)
                 try:
                     result = execute_tool(tool_name, args)
                 except Exception as e:
                     result = f"Tool execution error: {str(e)}"
+                    logger.error("Tool '%s' failed: %s", tool_name, e)
 
                 self._messages.append({
                     "role": "tool",
@@ -86,6 +93,7 @@ class Agent:
                 })
 
         # Max retries reached — return last content or error
+        logger.warning("Agent '%s' exceeded max retries (%d)", self.config.name, self.config.max_retries)
         return self._messages[-1].get("content", "Max retries exceeded, agent stopped.")
 
     def run_streaming(self, task: str, context: str = "") -> Any:
