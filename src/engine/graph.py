@@ -1,4 +1,6 @@
 """LangGraph StateGraph: wires nodes into the full workflow."""
+import logging
+
 from langgraph.graph import StateGraph, END
 
 from src.engine.state import WorkflowState
@@ -7,6 +9,8 @@ from src.engine.nodes.router import RouterNode
 from src.engine.nodes.executor import ExecutorNode
 from src.engine.nodes.reviewer import ReviewerNode, aggregator_node
 from src.llm.base import LLMProvider
+
+logger = logging.getLogger(__name__)
 
 
 def build_workflow_graph(llm_provider: LLMProvider):
@@ -90,6 +94,7 @@ def build_workflow_graph(llm_provider: LLMProvider):
     # Aggregator -> END
     graph.add_edge("aggregator", END)
 
+    logger.info("LangGraph workflow graph compiled successfully")
     return graph.compile()
 
 
@@ -103,6 +108,8 @@ def run_workflow(llm_provider: LLMProvider, task: str) -> dict:
     Returns:
         The final WorkflowState dict after graph execution.
     """
+    logger.info("Starting workflow for task: %s", task[:80])
+
     graph = build_workflow_graph(llm_provider)
 
     initial_state: dict = {
@@ -117,4 +124,13 @@ def run_workflow(llm_provider: LLMProvider, task: str) -> dict:
     }
 
     result = graph.invoke(initial_state)
+
+    plan_count = len(result.get("plan", []))
+    result_count = len(result.get("results", {}))
+    errors = result.get("errors", [])
+    logger.info(
+        "Workflow finished — %d/%d steps completed, %d error(s)",
+        result_count, plan_count, len(errors),
+    )
+
     return result

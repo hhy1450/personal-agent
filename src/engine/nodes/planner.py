@@ -1,10 +1,13 @@
 """Planner node: breaks down user task into subtasks."""
 import json
+import logging
 import re
 
 from src.engine.state import WorkflowState
 from src.llm.base import LLMProvider
 from src.agents.prompts.defaults import PLANNER_PROMPT
+
+logger = logging.getLogger(__name__)
 
 
 class PlannerNode:
@@ -48,6 +51,7 @@ class PlannerNode:
             )
             content = response["choices"][0]["message"]["content"]
             plan = self._parse_plan(content)
+            logger.info("Planner generated %d subtask(s)", len(plan))
             return {
                 "plan": plan,
                 "current_step": 0,

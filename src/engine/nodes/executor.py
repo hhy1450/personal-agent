@@ -1,9 +1,13 @@
 """Executor node: runs an agent on the current subtask."""
+import logging
+
 from src.engine.state import WorkflowState
 from src.agents.base import Agent
 from src.agents.config import AgentConfig
 from src.llm.base import LLMProvider
 from src.agents.prompts.defaults import AGENT_PROMPTS
+
+logger = logging.getLogger(__name__)
 
 # Tool assignments per agent
 AGENT_TOOLS = {
@@ -61,17 +65,20 @@ class ExecutorNode:
         try:
             agent = self._get_or_create_agent(agent_name)
             context = self._build_context(state)
+            logger.info("Step %d [%s]: %s", current_step, agent_name, subtask_desc[:60])
             result = agent.run(task=subtask_desc, context=context)
 
             # Update results dict — keep current_step unchanged
             results = dict(state.get("results", {}))
             results[str(current_step)] = result
 
+            logger.debug("Step %d completed — %d chars output", current_step, len(result))
             return {
                 "results": results,
                 "next_action": "continue",
             }
         except Exception as e:
+            logger.error("Step %d failed: %s", current_step, e)
             errors = list(state.get("errors", []))
             errors.append({
                 "step": current_step,

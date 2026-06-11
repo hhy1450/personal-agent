@@ -1,9 +1,13 @@
 """Reviewer node: quality check after each subtask execution."""
+import logging
+
 from src.engine.state import WorkflowState
 from src.agents.base import Agent
 from src.agents.config import AgentConfig
 from src.llm.base import LLMProvider
 from src.agents.prompts.defaults import REVIEWER_PROMPT
+
+logger = logging.getLogger(__name__)
 
 
 class ReviewerNode:
@@ -62,10 +66,13 @@ class ReviewerNode:
                 approved = True  # reviewer failed, continue to avoid blocking
 
         if approved:
+            logger.info("Step %d APPROVED", current_step)
             return self._advance_step(current_step, plan, retry_count=0)
         elif retry_count >= max_retries:
+            logger.warning("Step %d max retries (%d) reached — advancing anyway", current_step, max_retries)
             return self._advance_step(current_step, plan, retry_count=0)
         else:
+            logger.info("Step %d REJECTED (retry %d/%d)", current_step, retry_count + 1, max_retries)
             return self._retry(current_step, retry_count)
 
     @staticmethod
@@ -73,6 +80,7 @@ class ReviewerNode:
         """Move to the next plan step, or signal finish if exhausted."""
         next_step = current_step + 1
         if next_step >= len(plan):
+            logger.info("All %d step(s) complete — finishing workflow", len(plan))
             return {
                 "current_step": next_step,
                 "next_action": "finish",
