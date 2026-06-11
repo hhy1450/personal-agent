@@ -155,7 +155,12 @@ class TestExecutorNode:
 
     @patch("src.engine.nodes.executor.Agent")
     def test_execute_handles_error(self, MockAgent):
-        """Should catch agent errors and record them."""
+        """Should catch agent errors, record them, and write an error result.
+
+        The error result (prefixed with 'Error:') lets the reviewer detect
+        the failure, auto-reject, and properly track retry_count — preventing
+        infinite loops in the LangGraph graph.
+        """
         mock_agent = MagicMock()
         mock_agent.run.side_effect = Exception("Tool not available")
         MockAgent.return_value = mock_agent
@@ -175,6 +180,9 @@ class TestExecutorNode:
 
         result = executor(state)
 
-        assert result["next_action"] == "retry"
         assert len(result["errors"]) == 1
         assert "Tool not available" in result["errors"][0]["detail"]
+        # Must write an error result so reviewer can see and handle it
+        assert "0" in result["results"]
+        assert result["results"]["0"].startswith("Error:")
+        # No next_action — reviewer decides
