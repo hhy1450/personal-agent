@@ -20,6 +20,11 @@ def build_workflow_graph(llm_provider: LLMProvider):
                        |            continue               |
                        +-> aggregator -> END (when plan done/fatal)
 
+    The reviewer owns step progression:
+    - APPROVED  → current_step + 1, go back to router (next subtask or finish)
+    - REJECTED  → current_step unchanged, go back to router (retry same step)
+    - FINISH    → aggregator → END
+
     Args:
         llm_provider: The LLM backend to use.
 
@@ -35,7 +40,7 @@ def build_workflow_graph(llm_provider: LLMProvider):
 
     # Add nodes
     graph.add_node("planner", planner)
-    graph.add_node("router_conditional", lambda state: {})
+    graph.add_node("router", lambda state: {})  # pure routing junction
     graph.add_node("researcher", executor)
     graph.add_node("writer", executor)
     graph.add_node("reviewer_node", reviewer)
@@ -45,11 +50,11 @@ def build_workflow_graph(llm_provider: LLMProvider):
     graph.set_entry_point("planner")
 
     # Planner -> Router
-    graph.add_edge("planner", "router_conditional")
+    graph.add_edge("planner", "router")
 
-    # Conditional edges from router
+    # Conditional edges from router to agent nodes or aggregator
     graph.add_conditional_edges(
-        "router_conditional",
+        "router",
         router,
         {
             "researcher": "researcher",
@@ -63,20 +68,22 @@ def build_workflow_graph(llm_provider: LLMProvider):
     graph.add_edge("researcher", "reviewer_node")
     graph.add_edge("writer", "reviewer_node")
 
-    # Reviewer conditional: retry or continue
+    # Reviewer conditional: retry, next step, or finish
     def reviewer_router(state: WorkflowState) -> str:
-        """After review, decide: retry or move forward."""
+        """After review, decide: retry same step, continue to next, or finish."""
         next_action = state.get("next_action", "continue")
-        if next_action == "retry":
-            return "router_conditional"
-        else:
-            return "router_conditional"
+        if next_action == "finish":
+            return "aggregator"
+        # Both "retry" and "continue" go back to the router;
+        # the router reads current_step to pick the correct agent.
+        return "router"
 
     graph.add_conditional_edges(
         "reviewer_node",
         reviewer_router,
         {
-            "router_conditional": "router_conditional",
+            "router": "router",
+            "aggregator": "aggregator",
         },
     )
 
@@ -87,17 +94,18 @@ def build_workflow_graph(llm_provider: LLMProvider):
 
 
 def run_workflow(llm_provider: LLMProvider, task: str) -> dict:
-    """Run a complete workflow for a given task using sequential execution.
+    """Run a complete workflow for a given task using the compiled LangGraph.
 
-    Avoids LangGraph conditional edge issues by running nodes in a simple
-    loop instead of relying on graph routing.
+    Args:
+        llm_provider: The LLM backend to use.
+        task: The user's natural language task description.
+
+    Returns:
+        The final WorkflowState dict after graph execution.
     """
-    planner = PlannerNode(llm_provider)
-    router = RouterNode()
-    executor = ExecutorNode(llm_provider)
-    reviewer = ReviewerNode(llm_provider)
+    graph = build_workflow_graph(llm_provider)
 
-    state: dict = {
+    initial_state: dict = {
         "task": task,
         "plan": [],
         "current_step": 0,
@@ -108,35 +116,5 @@ def run_workflow(llm_provider: LLMProvider, task: str) -> dict:
         "retry_count": 0,
     }
 
-    # Step 1: Plan
-    state.update(planner(state))
-    if state.get("next_action") == "finish":
-        final = aggregator_node(state)
-        state.update(final)
-        return state
-
-    # Step 2: Execute each subtask
-    plan = state.get("plan", [])
-    step = 0
-    while step < len(plan):
-        state["current_step"] = step
-
-        # Route to agent
-        agent_name = router(state)
-        if agent_name == "aggregator":
-            break
-
-        # Execute
-        state.update(executor(state))
-
-        # Review
-        state.update(reviewer(state))
-
-        if state.get("next_action") == "retry":
-            continue  # re-run same step
-        step += 1
-
-    # Step 3: Aggregate
-    final = aggregator_node(state)
-    state.update(final)
-    return state
+    result = graph.invoke(initial_state)
+    return result
