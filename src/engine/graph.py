@@ -47,7 +47,8 @@ def build_workflow_graph(llm_provider: LLMProvider):
     graph.add_node("router", lambda state: {})  # pure routing junction
     graph.add_node("researcher", executor)
     graph.add_node("writer", executor)
-    graph.add_node("reviewer_node", reviewer)
+    graph.add_node("reviewer", executor)         # plan step executor for review tasks
+    graph.add_node("quality_gate", reviewer)    # quality check after every step
     graph.add_node("aggregator", aggregator_node)
 
     # Set entry point
@@ -63,17 +64,18 @@ def build_workflow_graph(llm_provider: LLMProvider):
         {
             "researcher": "researcher",
             "writer": "writer",
-            "reviewer": "reviewer_node",
+            "reviewer": "reviewer",       # review-type plan step → executor
             "aggregator": "aggregator",
         },
     )
 
-    # After each agent -> reviewer
-    graph.add_edge("researcher", "reviewer_node")
-    graph.add_edge("writer", "reviewer_node")
+    # After each agent → quality gate
+    graph.add_edge("researcher", "quality_gate")
+    graph.add_edge("writer", "quality_gate")
+    graph.add_edge("reviewer", "quality_gate")
 
-    # Reviewer conditional: retry, next step, or finish
-    def reviewer_router(state: WorkflowState) -> str:
+    # Quality gate conditional: retry, next step, or finish
+    def quality_gate_router(state: WorkflowState) -> str:
         """After review, decide: retry same step, continue to next, or finish."""
         next_action = state.get("next_action", "continue")
         if next_action == "finish":
@@ -83,8 +85,8 @@ def build_workflow_graph(llm_provider: LLMProvider):
         return "router"
 
     graph.add_conditional_edges(
-        "reviewer_node",
-        reviewer_router,
+        "quality_gate",
+        quality_gate_router,
         {
             "router": "router",
             "aggregator": "aggregator",

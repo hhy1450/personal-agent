@@ -127,6 +127,48 @@ class TestFullWorkflow:
         finally:
             set_sandbox(None)
 
+    def test_workflow_with_review_step(self, tmp_path):
+        """Plan with a review-type step should not loop infinitely.
+
+        Regression test: the graph used to route review-type steps to the
+        quality gate instead of an executor, causing an infinite loop
+        (recursion limit). Now review steps go through a dedicated
+        review agent executor, then the quality gate.
+        """
+        mock_llm = MagicMock()
+        mock_llm.model_name = "test-model"
+
+        mock_llm.chat_completion.side_effect = [
+            # Planner: research + review
+            _make_response(content='[{"type": "research", "description": "Find info"}, {"type": "review", "description": "Review findings"}]'),
+            # Researcher tool call
+            _make_response(content=None, tool_calls=[{
+                "id": "call_1",
+                "function": {"name": "web_search", "arguments": '{"query":"test"}'}
+            }]),
+            # Researcher final
+            _make_response(content="Research results here."),
+            # Quality gate after researcher
+            _make_response(content="APPROVED"),
+            # Reviewer agent final (review-type step)
+            _make_response(content="Review: the research looks good and complete."),
+            # Quality gate after reviewer agent
+            _make_response(content="APPROVED"),
+        ]
+
+        sandbox = Sandbox(tmp_path)
+        set_sandbox(sandbox)
+
+        try:
+            result = run_workflow(mock_llm, "Find and review info about test")
+
+            assert result is not None
+            assert len(result.get("plan", [])) == 2
+            assert len(result.get("results", {})) == 2
+            assert result["final_output"] != ""
+        finally:
+            set_sandbox(None)
+
 
 class TestStorageIntegration:
     """Integration tests for storage layer (MySQL)."""
