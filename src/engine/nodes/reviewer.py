@@ -17,37 +17,37 @@ class ReviewerNode:
         self._agent: Agent | None = None
 
     def __call__(self, state: WorkflowState) -> dict:
-        """Review the latest subtask result.
+        """Review the current subtask result and control step progression.
 
-        Returns partial state with updated next_action:
-        - "continue" if approved
-        - "retry" if needs another attempt
+        The reviewer is the sole owner of current_step advancement:
+        - APPROVED  → increment current_step (or finish if plan exhausted)
+        - NOT APPROVED → keep current_step unchanged so the graph re-runs
+          the same step (retry)
+
+        Returns partial state with updated next_action and current_step.
         """
+        plan = state.get("plan", [])
         results = state.get("results", {})
         current_step = state.get("current_step", 0)
-        last_step = current_step - 1
 
-        # If no results yet, skip review
-        if not results or str(last_step) not in results:
+        # If no results yet for this step, skip review
+        if not results or str(current_step) not in results:
             return {"next_action": "continue"}
 
-        last_result = results.get(str(last_step), "")
+        last_result = results.get(str(current_step), "")
         task = state.get("task", "")
-
         retry_count = state.get("retry_count", 0)
+        max_retries = 3
 
         # Quick heuristic: if result starts with error, it failed
         if last_result.startswith("Error:"):
-            if retry_count >= 3:
-                return {"next_action": "continue", "retry_count": 0}
-            return {
-                "next_action": "retry",
-                "retry_count": retry_count + 1,
-                "current_step": last_step,
-            }
+            if retry_count >= max_retries:
+                return self._advance_step(current_step, plan, retry_count=0)
+            return self._retry(current_step, retry_count)
 
-        # Skip reviewer LLM call for simple tasks — just approve
-        if "APPROVED" not in last_result.upper():
+        # Use reviewer LLM to judge quality
+        approved = "APPROVED" in last_result.upper()
+        if not approved:
             try:
                 agent = self._get_agent()
                 review_prompt = (
@@ -57,19 +57,41 @@ class ReviewerNode:
                     f"or explain what needs improvement."
                 )
                 verdict = agent.run(task=review_prompt, context="")
-
-                if "APPROVED" not in verdict.upper():
-                    if retry_count >= 3:
-                        return {"next_action": "continue", "retry_count": 0}
-                    return {
-                        "next_action": "retry",
-                        "retry_count": retry_count + 1,
-                        "current_step": last_step,
-                    }
+                approved = "APPROVED" in verdict.upper()
             except Exception:
-                pass  # reviewer failed, continue anyway
+                approved = True  # reviewer failed, continue to avoid blocking
 
-        return {"next_action": "continue", "retry_count": 0}
+        if approved:
+            return self._advance_step(current_step, plan, retry_count=0)
+        elif retry_count >= max_retries:
+            return self._advance_step(current_step, plan, retry_count=0)
+        else:
+            return self._retry(current_step, retry_count)
+
+    @staticmethod
+    def _advance_step(current_step: int, plan: list, retry_count: int) -> dict:
+        """Move to the next plan step, or signal finish if exhausted."""
+        next_step = current_step + 1
+        if next_step >= len(plan):
+            return {
+                "current_step": next_step,
+                "next_action": "finish",
+                "retry_count": retry_count,
+            }
+        return {
+            "current_step": next_step,
+            "next_action": "continue",
+            "retry_count": retry_count,
+        }
+
+    @staticmethod
+    def _retry(current_step: int, retry_count: int) -> dict:
+        """Stay on the same step for another attempt."""
+        return {
+            "next_action": "retry",
+            "retry_count": retry_count + 1,
+            "current_step": current_step,
+        }
 
     def _get_agent(self) -> Agent:
         """Get or create the reviewer agent."""
