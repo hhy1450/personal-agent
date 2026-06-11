@@ -118,7 +118,7 @@ class TestExecutorNode:
         result = executor(state)
 
         assert result["next_action"] == "continue"
-        assert result["current_step"] == 1
+        assert "current_step" not in result  # executor no longer advances step
         assert str(0) in result["results"]
         mock_agent.run.assert_called_once_with(
             task="Find AI trends", context="None"
@@ -151,7 +151,7 @@ class TestExecutorNode:
 
         assert "0" in result["results"]
         assert "1" in result["results"]
-        assert result["current_step"] == 2
+        assert "current_step" not in result  # executor no longer advances step
 
     @patch("src.engine.nodes.executor.Agent")
     def test_execute_handles_error(self, MockAgent):
