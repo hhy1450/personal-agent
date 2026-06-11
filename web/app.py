@@ -1,6 +1,7 @@
 """Personal Agent Streamlit Web 界面."""
 import sys
 import json
+import ast
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -157,11 +158,11 @@ if selected_id:
             for run in runs:
                 state_json = run["state_json"]
                 try:
-                    state = json.loads(state_json.replace("'", '"')) if isinstance(state_json, str) else {}
+                    state = json.loads(state_json) if isinstance(state_json, str) else {}
                 except json.JSONDecodeError:
                     try:
-                        state = eval(state_json) if state_json and state_json != "{}" else {}
-                    except Exception:
+                        state = ast.literal_eval(state_json) if state_json and state_json != "{}" else {}
+                    except (ValueError, SyntaxError):
                         state = {}
 
                 final_output = state.get("final_output", "")
