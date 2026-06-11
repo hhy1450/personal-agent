@@ -24,8 +24,18 @@ class ExecutorNode:
         self.llm = llm_provider
         self._agent_cache: dict[str, Agent] = {}
 
+    # Maps planner subtask type to agent config name.
+    _TYPE_TO_AGENT: dict[str, str] = {
+        "research": "researcher",
+        "write": "writer",
+        "review": "reviewer",
+    }
+
     def __call__(self, state: WorkflowState) -> dict:
         """Execute the current subtask.
+
+        Does NOT advance current_step — the ReviewerNode owns step
+        progression so that retries stay on the same step naturally.
 
         Args:
             state: Current workflow state.
@@ -40,31 +50,25 @@ class ExecutorNode:
             return {"next_action": "finish"}
 
         subtask = plan[current_step]
-        subtask_type = subtask.get("type", "")
+        subtask_type = subtask.get("type", "").lower()
         subtask_desc = subtask.get("description", "")
 
-        agent_name = subtask_type.lower()
-        if agent_name.endswith("e"):
-            agent_name = agent_name + "r"
-        if agent_name == "review":
-            agent_name = "reviewer"
-        if agent_name == "research":
-            agent_name = "researcher"
-        if agent_name == "write":
-            agent_name = "writer"
+        agent_name = self._TYPE_TO_AGENT.get(
+            subtask_type,
+            self._TYPE_TO_AGENT.get("write", "writer"),
+        )
 
         try:
             agent = self._get_or_create_agent(agent_name)
             context = self._build_context(state)
             result = agent.run(task=subtask_desc, context=context)
 
-            # Update results dict
+            # Update results dict — keep current_step unchanged
             results = dict(state.get("results", {}))
             results[str(current_step)] = result
 
             return {
                 "results": results,
-                "current_step": current_step + 1,
                 "next_action": "continue",
             }
         except Exception as e:
