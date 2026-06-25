@@ -14,7 +14,7 @@ from src.storage.database import (
     create_workflow_run, update_workflow_run, get_connection,
 )
 from src.storage.models import TaskStatus
-from src.llm.deepseek import DeepSeekProvider
+from src.llm.factory import get_llm_factory
 from src.engine.graph import run_workflow
 
 setup_logging()
@@ -71,7 +71,7 @@ if go_btn and task_input.strip():
     run_record = create_workflow_run(db_task.id)
 
     try:
-        provider = DeepSeekProvider()
+        factory = get_llm_factory()
 
         # 阶段一：拆解任务
         st.divider()
@@ -79,7 +79,7 @@ if go_btn and task_input.strip():
         st.info("正在调用 AI 分析你的任务...")
 
         from src.engine.nodes.planner import PlannerNode
-        planner = PlannerNode(provider)
+        planner = PlannerNode(factory.text_provider)
         plan_state = planner({"task": task_input})
         plan = plan_state.get("plan", [])
         plan_errors = plan_state.get("errors", [])
@@ -99,7 +99,7 @@ if go_btn and task_input.strip():
         st.markdown("### ⚙️ 第二步：执行工作流")
         st.info("Agent 正在分步执行，请稍候...")
 
-        result = run_workflow(provider, task_input, plan=plan)
+        result = run_workflow(factory, task_input, plan=plan)
 
         results = result.get("results", {})
         exec_errors = result.get("errors", [])

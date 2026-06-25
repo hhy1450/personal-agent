@@ -15,6 +15,7 @@ class AgentConfig:
     model: str = "deepseek-chat"
     max_retries: int = 3
     temperature: float = 0.1
+    requires_vision: bool = False  # True → use vision-capable provider
 
     def to_dict(self) -> dict:
         return {
@@ -24,4 +25,5 @@ class AgentConfig:
             "model": self.model,
             "max_retries": self.max_retries,
             "temperature": self.temperature,
+            "requires_vision": self.requires_vision,
         }

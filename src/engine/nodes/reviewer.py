@@ -1,4 +1,8 @@
-"""Reviewer node: quality check after each subtask execution."""
+"""Reviewer node: quality check after each subtask execution.
+
+When structured action info is available (from ActionMapper), the reviewer
+also validates that the action type matches the expected step type.
+"""
 import logging
 
 from src.engine.state import WorkflowState
@@ -8,6 +12,13 @@ from src.llm.base import LLMProvider
 from src.agents.prompts.defaults import REVIEWER_PROMPT
 
 logger = logging.getLogger(__name__)
+
+# Expected action types per plan step type
+STEP_ACTION_MAP = {
+    "research": {"search"},
+    "write": {"write_file", "generate"},
+    "review": {"review", "read_file"},
+}
 
 
 class ReviewerNode:
@@ -23,16 +34,17 @@ class ReviewerNode:
     def __call__(self, state: WorkflowState) -> dict:
         """Review the current subtask result and control step progression.
 
-        The reviewer is the sole owner of current_step advancement:
-        - APPROVED  → increment current_step (or finish if plan exhausted)
-        - NOT APPROVED → keep current_step unchanged so the graph re-runs
-          the same step (retry)
+        Strategy-aware behavior:
+        - sequential: APPROVED → advance, REJECTED → retry (max 3)
+        - parallel: same as sequential, but batch steps skip review
+        - loop: check stop_condition; if met → advance, else → retry
 
         Returns partial state with updated next_action and current_step.
         """
         plan = state.get("plan", [])
         results = state.get("results", {})
         current_step = state.get("current_step", 0)
+        strategy = state.get("strategy", "sequential")
 
         # If no results yet for this step, skip review
         if not results or str(current_step) not in results:
@@ -49,7 +61,45 @@ class ReviewerNode:
                 return self._advance_step(current_step, plan, retry_count=0)
             return self._retry(current_step, retry_count)
 
-        # Use reviewer LLM to judge quality
+        # ---- Structured action validation (if available) ----
+        action_key = f"{current_step}_action"
+        action_info = results.get(action_key, {})
+        if action_info.get("mapped"):
+            action_type = action_info.get("action_type", "")
+            step_type = plan[current_step].get("type", "") if current_step < len(plan) else ""
+            expected = STEP_ACTION_MAP.get(step_type, set())
+            if expected and action_type not in expected:
+                logger.warning(
+                    "Step %d action mismatch: step_type=%s but action=%s (expected %s)",
+                    current_step, step_type, action_type, expected,
+                )
+                # Don't auto-reject — just flag and let LLM review decide
+
+        # ---- Loop strategy: check stop_condition ----
+        if strategy == "loop":
+            subtask = plan[current_step] if current_step < len(plan) else {}
+            stop_condition = subtask.get("stop_condition", "")
+            max_iterations = subtask.get("max_iterations", 5)
+
+            if retry_count >= max_iterations:
+                logger.info("Loop step %d: max iterations (%d) reached", current_step, max_iterations)
+                return self._advance_step(current_step, plan, retry_count=0)
+
+            # Ask reviewer to check if stop condition is met
+            loop_met = self._check_loop_condition(
+                task=task,
+                result=last_result,
+                stop_condition=stop_condition,
+            )
+            if loop_met:
+                logger.info("Loop step %d: stop condition MET → advancing", current_step)
+                return self._advance_step(current_step, plan, retry_count=0)
+            else:
+                logger.info("Loop step %d: stop condition NOT met (iteration %d/%d)",
+                            current_step, retry_count + 1, max_iterations)
+                return self._retry(current_step, retry_count)
+
+        # ---- Sequential/Parallel: standard quality review ----
         approved = "APPROVED" in last_result.upper()
         if not approved:
             try:
@@ -69,11 +119,39 @@ class ReviewerNode:
             logger.info("Step %d APPROVED", current_step)
             return self._advance_step(current_step, plan, retry_count=0)
         elif retry_count >= max_retries:
-            logger.warning("Step %d max retries (%d) reached — advancing anyway", current_step, max_retries)
+            logger.warning("Step %d max retries (%d) reached — advancing anyway",
+                           current_step, max_retries)
             return self._advance_step(current_step, plan, retry_count=0)
         else:
-            logger.info("Step %d REJECTED (retry %d/%d)", current_step, retry_count + 1, max_retries)
+            logger.info("Step %d REJECTED (retry %d/%d)",
+                        current_step, retry_count + 1, max_retries)
             return self._retry(current_step, retry_count)
+
+    def _check_loop_condition(
+        self, task: str, result: str, stop_condition: str,
+    ) -> bool:
+        """Check if a loop step's stop condition has been met.
+
+        Uses a lightweight LLM call to evaluate whether the result
+        satisfies the stop condition.
+        """
+        if not stop_condition:
+            return True  # No condition specified → one shot
+
+        try:
+            agent = self._get_agent()
+            check_prompt = (
+                f"Original task: {task}\n\n"
+                f"Stop condition: {stop_condition}\n\n"
+                f"Latest execution result:\n{result[:1500]}\n\n"
+                f"Has the stop condition been met? "
+                f"Reply with exactly YES or NO, then a brief explanation."
+            )
+            verdict = agent.run(task=check_prompt, context="")
+            return "YES" in verdict.upper() and "NO" not in verdict.upper().split("YES")[0]
+        except Exception:
+            # Reviewer failed → assume condition met to avoid infinite loop
+            return True
 
     @staticmethod
     def _advance_step(current_step: int, plan: list, retry_count: int) -> dict:
@@ -135,7 +213,7 @@ def aggregator_node(state: WorkflowState) -> dict:
         step_key = str(i)
         if step_key in results:
             parts.append(f"## Step {i + 1}: {subtask.get('description', 'Unknown')}")
-            parts.append(results[step_key])
+            parts.append(str(results[step_key]))
             parts.append("")
 
     return {

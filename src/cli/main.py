@@ -3,7 +3,7 @@ import sys
 import click
 
 from src.config.settings import setup_logging
-from src.llm.deepseek import DeepSeekProvider
+from src.llm.factory import get_llm_factory
 from src.engine.graph import run_workflow
 from src.storage.database import (
     init_db, seed_agent_configs,
@@ -45,8 +45,8 @@ def run(task: str, verbose: bool = False):
     run_record = create_workflow_run(db_task.id)
 
     try:
-        provider = DeepSeekProvider()
-        result = run_workflow(provider, task)
+        factory = get_llm_factory()
+        result = run_workflow(factory, task)
 
         if verbose:
             click.echo(f"\n  Plan: {len(result.get('plan', []))} steps")
@@ -119,13 +119,60 @@ def inspect(task_id: int):
 
 
 @cli.command()
-def web():
-    """Launch the Streamlit Web UI."""
+@click.option("--port", "-p", default=8000, help="API server port.")
+@click.option("--no-streamlit", is_flag=True, help="Start API only, no Streamlit.")
+def web(port: int, no_streamlit: bool):
+    """Launch the Personal Agent web interface.
+
+    Starts FastAPI (API + WebSocket) on --port, and Streamlit on 8501.
+    """
     import subprocess
+    import sys
+    import time
     from pathlib import Path
 
-    web_app = Path(__file__).parent.parent.parent / "web" / "app.py"
-    subprocess.run(["streamlit", "run", str(web_app)])
+    web_dir = Path(__file__).parent.parent.parent / "web"
+
+    click.echo(f"\n  Starting Personal Agent v0.2.0\n")
+    click.echo(f"  API + WebSocket:  http://localhost:{port}")
+    click.echo(f"  API Docs:         http://localhost:{port}/docs")
+
+    # Start FastAPI
+    api_proc = subprocess.Popen([
+        sys.executable, "-m", "uvicorn",
+        "src.api.app:app",
+        "--host", "0.0.0.0",
+        "--port", str(port),
+        "--log-level", "info",
+    ])
+
+    if not no_streamlit:
+        click.echo(f"  Streamlit UI:     http://localhost:8501")
+        click.echo(f"\n  Press Ctrl+C to stop all services.\n")
+
+        # Start Streamlit
+        streamlit_proc = subprocess.Popen([
+            sys.executable, "-m", "streamlit", "run",
+            str(web_dir / "app.py"),
+            "--server.port", "8501",
+        ])
+
+        try:
+            streamlit_proc.wait()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            streamlit_proc.terminate()
+            api_proc.terminate()
+            streamlit_proc.wait()
+            api_proc.wait()
+    else:
+        click.echo(f"\n  Press Ctrl+C to stop.\n")
+        try:
+            api_proc.wait()
+        except KeyboardInterrupt:
+            api_proc.terminate()
+            api_proc.wait()
 
 
 if __name__ == "__main__":

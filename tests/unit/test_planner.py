@@ -58,14 +58,14 @@ class TestPlannerNode:
         assert "API error" in result["errors"][0]["detail"]
 
     def test_invalid_json(self):
-        """_parse_plan should return empty list for invalid JSON."""
+        """_parse_plan should return empty steps for invalid JSON."""
         planner = PlannerNode(MagicMock())
         result = planner._parse_plan("This is not JSON at all")
-        assert result == []
+        assert result == {"strategy": "sequential", "steps": []}
 
     def test_partial_valid_json(self):
-        """_parse_plan should filter out items without type/description."""
+        """_parse_plan should filter out items without type."""
         planner = PlannerNode(MagicMock())
         result = planner._parse_plan('[{"type": "research"}, {"other": "value"}]')
-        # Both items missing description or type
-        assert result == []
+        # Both items missing type field
+        assert result == {"strategy": "sequential", "steps": []}

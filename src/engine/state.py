@@ -18,3 +18,6 @@ class WorkflowState(TypedDict):
     errors: list[dict]              # Error log: [{step, type, detail}]
     next_action: str                # Router decision: "continue" | "finish" | "retry"
     retry_count: int                # Current step retry counter (max 3)
+    strategy: str                   # Orchestration strategy: "sequential" | "parallel" | "loop"
+    context_summary: str            # Compressed summary from ContextManager (for long tasks)
+    history: list[dict]             # Structured execution history: [{step, agent, desc, result, approved}]

@@ -27,9 +27,16 @@ class Task:
             "title": self.title,
             "description": self.description,
             "status": self.status.value,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
+            "created_at": self._fmt_time(self.created_at),
+            "updated_at": self._fmt_time(self.updated_at),
         }
+
+    @staticmethod
+    def _fmt_time(val) -> str:
+        """Coerce datetime or string to ISO format string."""
+        if isinstance(val, datetime):
+            return val.isoformat()
+        return str(val) if val else ""
 
     @classmethod
     def from_row(cls, row: tuple) -> "Task":
@@ -38,8 +45,8 @@ class Task:
             title=row[1],
             description=row[2],
             status=TaskStatus(row[3]),
-            created_at=row[4],
-            updated_at=row[5],
+            created_at=cls._fmt_time(row[4]),
+            updated_at=cls._fmt_time(row[5]),
         )
 
 
@@ -52,3 +59,10 @@ class WorkflowRun:
     started_at: str = field(default_factory=lambda: datetime.now().isoformat())
     finished_at: str | None = None
     status: TaskStatus = TaskStatus.PENDING
+
+    @staticmethod
+    def _fmt_time(val) -> str:
+        """Coerce datetime or string to ISO format string."""
+        if isinstance(val, datetime):
+            return val.isoformat()
+        return str(val) if val else ""

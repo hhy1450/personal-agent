@@ -40,3 +40,12 @@ class LLMProvider(ABC):
     def model_name(self) -> str:
         """Return the model identifier for this provider."""
         ...
+
+    @property
+    def supports_vision(self) -> bool:
+        """Whether this provider can process image inputs.
+
+        Default is False. Vision-capable providers (e.g. QwenVLProvider)
+        override this to return True.
+        """
+        return False

@@ -11,10 +11,14 @@ load_dotenv()
 # Project root
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
-# LLM
+# LLM — Text (DeepSeek)
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-chat")
+
+# LLM — Vision (Qwen-VL via DashScope)
+DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
+VISION_MODEL = os.getenv("VISION_MODEL", "qwen-vl-max")
 
 # Workspace
 WORKSPACE_DIR = PROJECT_ROOT / os.getenv("WORKSPACE_DIR", "workspace")
